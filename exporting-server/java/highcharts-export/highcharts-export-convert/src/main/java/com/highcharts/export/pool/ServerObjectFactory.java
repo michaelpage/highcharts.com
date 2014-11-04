@@ -1,15 +1,14 @@
 package com.highcharts.export.pool;
 
-import java.util.HashMap;
-import java.util.Map;
-
-import javax.annotation.PostConstruct;
-
-import org.apache.log4j.Logger;
-
 import com.highcharts.export.server.Server;
 import com.highcharts.export.server.ServerState;
 import com.highcharts.export.util.TempDir;
+import org.apache.commons.io.IOUtils;
+import org.apache.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
+
+import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -19,8 +18,8 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import org.apache.commons.io.IOUtils;
-import org.springframework.core.io.ClassPathResource;
+import java.util.HashMap;
+import java.util.Map;
 
 public class ServerObjectFactory implements ObjectFactory<Server> {
 
@@ -34,6 +33,9 @@ public class ServerObjectFactory implements ObjectFactory<Server> {
 	private static HashMap<Integer, PortStatus> portUsage = new HashMap<Integer, PortStatus>();
 	protected static Logger logger = Logger.getLogger("pool");
 
+  @Autowired
+  private TempDir tempDir;
+
 	private enum PortStatus {
         BUSY,
         FREE;
@@ -45,7 +47,7 @@ public class ServerObjectFactory implements ObjectFactory<Server> {
 		Integer port = this.getAvailablePort();
         if (script.isEmpty()) {
             // use the bundled highcharts-convert.js script
-            script = TempDir.getPhantomJsDir().toAbsolutePath().toString() + "/highcharts-convert.js";
+            script = tempDir.getPhantomJsDir().toAbsolutePath().toString() + "/highcharts-convert.js";
         }
         Server server = new Server(exec, script, host, port, connectTimeout, readTimeout, maxTimeout);
 		portUsage.put(port, PortStatus.BUSY);
@@ -176,7 +178,7 @@ public class ServerObjectFactory implements ObjectFactory<Server> {
 		
 			ClassPathResource resource = new ClassPathResource("phantomjs/" + filename, jarLoader);
 			if (resource.exists()) {
-				Path path = Paths.get(TempDir.getPhantomJsDir().toString(), filename);
+				Path path = Paths.get(tempDir.getPhantomJsDir().toString(), filename);
 				File file;
 				try {
 					file = Files.createFile(path).toFile();

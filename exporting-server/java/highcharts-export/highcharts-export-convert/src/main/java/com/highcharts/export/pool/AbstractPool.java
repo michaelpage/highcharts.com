@@ -1,21 +1,21 @@
 package com.highcharts.export.pool;
 
 import com.highcharts.export.util.TempDir;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.IOFileFilter;
+import org.apache.commons.io.filefilter.TrueFileFilter;
+import org.apache.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
+
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.filefilter.IOFileFilter;
-
-import org.apache.log4j.Logger;
-import org.springframework.scheduling.annotation.Scheduled;
 
 public abstract class AbstractPool<T> implements ObjectPool<T> {
 
@@ -26,6 +26,9 @@ public abstract class AbstractPool<T> implements ObjectPool<T> {
 	final int capacity;
 	final long retentionTime;
 	protected static Logger logger = Logger.getLogger("pool");
+
+  @Autowired
+  protected TempDir tempDir;
 
 	public AbstractPool(ObjectFactory<T> objectFactory, int number, int maxWait, Long retentionTime) throws PoolException {
 		this.objectFactory = objectFactory;
@@ -85,25 +88,33 @@ public abstract class AbstractPool<T> implements ObjectPool<T> {
 		}
 	}
 
-	@Override
-	@Scheduled(initialDelay = 15000, fixedRate = 60000)
+	// Clean generated files once a day.
+  @Override
+	@Scheduled(initialDelay = 15000, fixedRate = 86400000)
 	public void tempDirCleaner() {
 		IOFileFilter filter = new IOFileFilter() {
 
 			@Override
 			public boolean accept(File file) {
 				try {
-					Long now = new Date().getTime();
-					Path path = Paths.get(file.getAbsolutePath());
-					BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
-					Long inBetween = now - attrs.lastAccessTime().toMillis();
+          if (file.isFile()) {
+            Date today = Calendar.getInstance().getTime();
+            Long now = today.getTime();
+            Path path = Paths.get(file.getAbsolutePath());
 
-					if (inBetween > retentionTime) {
-						return true;
-					}
+            Date fileDate = TempDir.getDateFromFilename(path.toString());
+            if (fileDate == null) {
+              fileDate = today;
+            }
 
-				} catch (IOException ioex) {
-					logger.error("Error: while selection files for deletion: "  + ioex.getMessage());
+            Long inBetween = now - fileDate.getTime();
+
+            if (inBetween > retentionTime) {
+              return true;
+            }
+          }
+        } catch (Exception ex) {
+					logger.error("Error: while selection files for deletion: "  + ex.getMessage());
 				}
 				return false;
 			}
@@ -114,7 +125,8 @@ public abstract class AbstractPool<T> implements ObjectPool<T> {
 			}
 		};
 
-		Collection<File> oldFiles = FileUtils.listFiles(TempDir.outputDir.toFile(),filter, null);
+		// Find files matching the IOFileFilter (includes all subdirectories).
+    Collection<File> oldFiles = FileUtils.listFiles(tempDir.getOutputDir().toFile(), filter, TrueFileFilter.INSTANCE);
 		for (File file : oldFiles) {
 			file.delete();
 		}
